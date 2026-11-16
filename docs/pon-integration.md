@@ -40,6 +40,7 @@ config iptv 'config'
 	option name 'itv'
 	option service_vid '43'
 	option mcast_vid '3990'
+	option igmp_vid 'mcast'
 	option macaddr ''
 ```
 
@@ -56,6 +57,18 @@ No custom netifd protocol is required.
 by the bridge / IGMP proxy / multicast routing stack.  When `omcproxy` is used,
 configure its upstream and downstream interfaces explicitly; installing
 `luci-app-omcproxy` is not enough.
+
+`igmp_vid` selects where IGMP/MLD control messages leave the ONU:
+
+- `mcast` (default) uses `mcast_vid`;
+- `service` uses `service_vid`.
+
+Most operators accept IGMP/MLD on the multicast VLAN.  A minority keep that
+VLAN downstream-only and expect the reports on the service VLAN; with
+`mcast` selected, `pon0` has no upstream flow for the report and
+`tx_no_mapping` drops it, which shows up as working authentication/VOD but a
+black live-TV picture.  Select `service` for that deployment.  Other
+multicast traffic, including IPv6 NDP, remains on `mcast_vid`.
 
 ## NAT helper and the xtables trap
 

@@ -39,6 +39,7 @@ load_config() {
 	config_get NAME config name itv
 	config_get SERVICE_VID config service_vid
 	config_get MCAST_VID config mcast_vid
+	config_get IGMP_VID config igmp_vid mcast
 	config_get MACADDR config macaddr
 }
 
@@ -64,6 +65,30 @@ write_vids() {
 	}
 }
 
+resolve_igmp_vid() {
+	case "$IGMP_VID" in
+		''|mcast)
+			IGMP_VID=mcast
+			IGMP_ON_SERVICE=0
+			;;
+		service)
+			IGMP_ON_SERVICE=1
+			;;
+		*)
+			log_fail "invalid igmp_vid '$IGMP_VID' (expected 'mcast' or 'service')"
+			return 1
+			;;
+	esac
+}
+
+write_igmp_on_service() {
+	printf '%s\n' "$IGMP_ON_SERVICE" \
+		> "/sys/class/net/$NAME/igmp_on_service" || {
+		log_fail "cannot write igmp_on_service=$IGMP_ON_SERVICE to $NAME"
+		return 1
+	}
+}
+
 configure_device() {
 	local err
 
@@ -83,6 +108,8 @@ configure_device() {
 		write_vids || return 1
 	fi
 
+	write_igmp_on_service || return 1
+
 	if [ -n "$MACADDR" ]; then
 		if ! err=$(ip link set "$NAME" address "$MACADDR" 2>&1); then
 			log_fail "cannot set MAC address $MACADDR on $NAME: $err"
@@ -95,7 +122,7 @@ configure_device() {
 		return 1
 	fi
 
-	logger -t iptv "$NAME up: uplink=$UPLINK service_vid=$SERVICE_VID mcast_vid=$MCAST_VID${MACADDR:+ macaddr=$MACADDR}"
+	logger -t iptv "$NAME up: uplink=$UPLINK service_vid=$SERVICE_VID mcast_vid=$MCAST_VID igmp_vid=$IGMP_VID${MACADDR:+ macaddr=$MACADDR}"
 }
 
 config_iptv() {
@@ -140,6 +167,8 @@ config_iptv() {
 		log_fail "uplink '$UPLINK' was not found"
 		return 1
 	}
+
+	resolve_igmp_vid || return 1
 
 	configure_device
 }

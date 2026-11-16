@@ -40,6 +40,12 @@ msgstr "承载 IPTV 组播流量的运营商 VLAN。"
 msgid "The multicast VLAN must differ from the service VLAN."
 msgstr "组播 VLAN 不能与业务 VLAN 相同。"
 
+msgid "Multicast control VLAN"
+msgstr "组播控制报文 VLAN"
+
+msgid "VLAN used for upstream IGMP/MLD control messages."
+msgstr "IGMP/MLD 控制报文上行使用的 VLAN"
+
 msgid "MAC address"
 msgstr "MAC 地址"
 

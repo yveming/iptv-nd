@@ -4,7 +4,8 @@
  *
  * Creates one untagged Ethernet device over a lower device and maps two
  * operator VLANs onto it.  Upstream, unicast frames are tagged with the
- * service VID and IPv4/IPv6 multicast frames with the multicast VID;
+ * service VID, IPv4/IPv6 multicast frames with the multicast VID, and
+ * IGMP/MLD control frames with either VID as selected by the operator;
  * downstream, frames carrying either VID are stripped and delivered
  * untagged.  Applications see a single interface carrying both the
  * service data and the multicast streams, and the operator VID plan
@@ -13,6 +14,7 @@
  * Usage:
  *   ip link add name itv link pon0 type iptv
  *   echo 43 3990 > /sys/class/net/itv/vids
+ *   echo 1 > /sys/class/net/itv/igmp_on_service
  *   ip link set itv address 02:00:00:00:00:01
  *
  * Hardware offload: plugins bind iptv_offload_ops to the device (see
@@ -22,12 +24,18 @@
  */
 
 #include <linux/etherdevice.h>
+#include <linux/icmpv6.h>
 #include <linux/if_arp.h>
+#include <linux/if_ether.h>
 #include <linux/if_vlan.h>
+#include <linux/in6.h>
+#include <linux/ip.h>
+#include <linux/ipv6.h>
 #include <linux/module.h>
 #include <linux/netdevice.h>
 #include <linux/rtnetlink.h>
 #include <net/gro_cells.h>
+#include <net/ip.h>
 #include <net/rtnetlink.h>
 
 #include "iptv_offload.h"
@@ -54,6 +62,7 @@ struct iptv_dev {
 	netdevice_tracker dev_tracker;
 	unsigned int service_vid;
 	unsigned int mcast_vid;
+	bool igmp_on_service;
 	bool handler_on;
 	bool gro_cells_ready;
 	struct gro_cells gro_cells;
@@ -72,6 +81,71 @@ static bool iptv_is_ip_multicast_da(const u8 *addr)
 	 * (DHCP) stays on the service VLAN. */
 	return (addr[0] == 0x01 && addr[1] == 0x00 && addr[2] == 0x5e) ||
 	       (addr[0] == 0x33 && addr[1] == 0x33);
+}
+
+/*
+ * IGMP and MLD reports/leaves carry a multicast destination MAC, but some
+ * operators expect them on the service VLAN while the multicast VLAN is
+ * downstream-only.  Match the L3/L4 protocol instead of the MAC so other
+ * IPv4/IPv6 multicast (including NDP) keeps using the multicast VID.
+ */
+static bool iptv_is_mcast_ctrl(const struct sk_buff *skb)
+{
+	struct ethhdr eth_buf;
+	const struct ethhdr *eth;
+	u8 type_buf;
+	const u8 *type;
+
+	if (skb->len < ETH_HLEN)
+		return false;
+
+	eth = skb_header_pointer(skb, 0, sizeof(eth_buf), &eth_buf);
+	if (!eth)
+		return false;
+
+	if (eth->h_proto == htons(ETH_P_IP)) {
+		struct iphdr iph_buf;
+		const struct iphdr *iph;
+
+		if (skb->len < ETH_HLEN + sizeof(iph_buf))
+			return false;
+
+		iph = skb_header_pointer(skb, ETH_HLEN, sizeof(iph_buf),
+					 &iph_buf);
+		if (!iph || iph->version != 4 || iph->ihl < 5)
+			return false;
+		if (ntohs(iph->frag_off) & (IP_MF | IP_OFFSET))
+			return false;
+
+		return iph->protocol == IPPROTO_IGMP;
+	}
+
+	if (eth->h_proto == htons(ETH_P_IPV6)) {
+		struct ipv6hdr ip6_buf;
+		const struct ipv6hdr *ip6;
+
+		if (skb->len < ETH_HLEN + sizeof(ip6_buf) + sizeof(type_buf))
+			return false;
+
+		ip6 = skb_header_pointer(skb, ETH_HLEN, sizeof(ip6_buf),
+					 &ip6_buf);
+		if (!ip6 || ip6->version != 6 ||
+		    ip6->nexthdr != IPPROTO_ICMPV6)
+			return false;
+
+		type = skb_header_pointer(skb, ETH_HLEN + sizeof(ip6_buf),
+					  sizeof(type_buf), &type_buf);
+		if (!type)
+			return false;
+
+		/* MLD queries and reports only; 133..137 are NDP. */
+		return *type == ICMPV6_MGM_QUERY ||
+		       *type == ICMPV6_MGM_REPORT ||
+		       *type == ICMPV6_MGM_REDUCTION ||
+		       *type == ICMPV6_MLD2_REPORT;
+	}
+
+	return false;
 }
 
 /* ------------------------------------------------------------------ */
@@ -155,8 +229,13 @@ static netdev_tx_t iptv_xmit(struct sk_buff *skb, struct net_device *dev)
 		goto drop;
 	}
 
-	vid = iptv_is_ip_multicast_da(skb->data) ? iptv->mcast_vid
-						 : iptv->service_vid;
+	if (iptv_is_mcast_ctrl(skb))
+		vid = READ_ONCE(iptv->igmp_on_service) ? iptv->service_vid
+						       : iptv->mcast_vid;
+	else if (iptv_is_ip_multicast_da(skb->data))
+		vid = iptv->mcast_vid;
+	else
+		vid = iptv->service_vid;
 
 	dev_sw_netstats_tx_add(dev, 1, len);
 	/* The tag rides in skb metadata; the lower device inserts it on the
@@ -228,8 +307,36 @@ static ssize_t iptv_vids_store(struct device *d, struct device_attribute *attr,
 }
 static DEVICE_ATTR(vids, 0644, iptv_vids_show, iptv_vids_store);
 
+static ssize_t iptv_igmp_on_service_show(struct device *d,
+					 struct device_attribute *attr,
+					 char *buf)
+{
+	struct iptv_dev *iptv = netdev_priv(to_net_dev(d));
+
+	return sysfs_emit(buf, "%u\n", iptv->igmp_on_service);
+}
+
+static ssize_t iptv_igmp_on_service_store(struct device *d,
+					  struct device_attribute *attr,
+					  const char *buf, size_t count)
+{
+	struct iptv_dev *iptv = netdev_priv(to_net_dev(d));
+	bool val;
+	int ret;
+
+	ret = kstrtobool(buf, &val);
+	if (ret)
+		return ret;
+
+	WRITE_ONCE(iptv->igmp_on_service, val);
+	return count;
+}
+static DEVICE_ATTR(igmp_on_service, 0644,
+		   iptv_igmp_on_service_show, iptv_igmp_on_service_store);
+
 static struct attribute *iptv_sysfs_attrs[] = {
 	&dev_attr_vids.attr,
+	&dev_attr_igmp_on_service.attr,
 	NULL,
 };
 static const struct attribute_group iptv_sysfs_group = {

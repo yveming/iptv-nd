@@ -7,7 +7,9 @@ stay inside the driver.
 ## Data path
 
 - TX: unicast frames are tagged with the service VID; IPv4/IPv6 multicast
-  frames are tagged with the multicast VID.
+  frames are tagged with the multicast VID.  IGMP and MLD control frames
+  (ICMPv6 130/131/132/143) use either the service or multicast VID,
+  selected by `igmp_on_service`.
 - RX: the lower device's receive path is intercepted with `rx_handler`.
   Frames carrying either VID are stripped and delivered untagged through
   `itv`; other frames continue through the normal path.
@@ -21,10 +23,13 @@ The VIDs are per-device sysfs configuration:
 
 ```sh
 echo 43 3990 > /sys/class/net/itv/vids
+echo 1 > /sys/class/net/itv/igmp_on_service
 ```
 
 `0 0` disarms the demux and unregisters the receive handler. An unconfigured
 device stays inert: RX passes frames through and TX drops them.
+`igmp_on_service` is a per-device boolean: 0 (default) sends IGMP/MLD with
+the multicast VID, 1 sends them with the service VID.
 
 `kmod-iptv` owns `/etc/config/iptv`, creates the device at boot and writes
 the sysfs file. Addressing and bridging are left to the standard Network
@@ -55,5 +60,7 @@ Without a backend the device is software-only. See `offload.md`.
   the PON-native path are handled by the CPU/GRO path.
 - Multicast forwarding is left to the bridge / IGMP proxy / multicast routing
   stack; no hardware port-mask offload.
+- IGMP/MLD detection inspects the base IPv4/IPv6 header; MLD carried behind
+  IPv6 extension headers keeps using the multicast VID.
 - Only the basic VLAN demux is implemented. TPID/PCP/DEI, double tags and
   arbitrary vendor rules are out of scope for v1.

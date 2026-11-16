@@ -21,6 +21,7 @@ var DEFAULT_CONFIG =
 	"\toption name 'itv'\n" +
 	"\toption service_vid ''\n" +
 	"\toption mcast_vid ''\n" +
+	"\toption igmp_vid 'mcast'\n" +
 	"\toption macaddr ''\n";
 
 return view.extend({
@@ -105,6 +106,15 @@ return view.extend({
 
 			return true;
 		};
+
+		o = s.option(form.ListValue, 'igmp_vid',
+			_('Multicast control VLAN'),
+			_('VLAN used for upstream IGMP/MLD control messages.'));
+		o.value('mcast', _('Multicast VLAN'));
+		o.value('service', _('Service VLAN'));
+		o.default = 'mcast';
+		o.rmempty = false;
+		o.depends('enabled', '1');
 
 		o = s.option(form.Value, 'macaddr', _('MAC address'),
 			_('Optional. Override the MAC address of the IPTV device.'));

@@ -1,4 +1,4 @@
-# openwrt-iptv
+# iptv-nd
 
 Linux/OpenWrt IPTV netdevice: expose one untagged interface over a lower
 device while keeping the operator's service and multicast VLANs inside the
@@ -30,10 +30,13 @@ OpenWrt feed.
 ```sh
 ip link add name itv link pon0 type iptv
 echo 43 3990 > /sys/class/net/itv/vids
+echo 1 > /sys/class/net/itv/igmp_on_service
 ip link set itv up
 ```
 
 - TX: unicast uses the service VID; IPv4/IPv6 multicast uses the multicast VID.
+- TX: IGMP/MLD control frames use either the service or multicast VID,
+  selected by `igmp_vid`.
 - RX: frames carrying either VID are stripped and delivered untagged.
 - Offload: `iptv_offload_ops` is a placeholder seam; no backend is implemented yet.
 
@@ -49,8 +52,21 @@ config iptv 'config'
 	option name 'itv'
 	option service_vid '43'
 	option mcast_vid '3990'
+	option igmp_vid 'mcast'
 	option macaddr ''
 ```
+
+`igmp_vid` selects the upstream VLAN for IGMP/MLD control messages:
+
+- `mcast` (default): use `mcast_vid`, matching the original behavior;
+- `service`: use `service_vid`.
+
+Some operators keep the multicast VLAN downstream-only and expect the
+IGMP/MLD reports on the service VLAN.  With `mcast` selected, those reports
+have no upstream flow on the PON link and are dropped, which leaves IPTV
+authentication/VOD working while live TV stays black.  Select `service` for
+that deployment.  Other multicast, including IPv6 NDP, always uses
+`mcast_vid`.
 
 `kmod-iptv` creates `itv` at boot (`START=19`, before network). Select it
 in the image config (`CONFIG_PACKAGE_kmod-iptv=y`); `luci-app-iptv` also
@@ -67,13 +83,14 @@ No custom netifd protocol is required.
 - `docs/design.md` — netdevice model and data path
 - `docs/offload.md` — offload seam and limitations
 - `docs/pon-integration.md` — PON/OpenWrt package, seed, omcproxy and xtables notes
+- `docs/igmp-control-vlan.md` — IGMP/MLD upstream VLAN selection
 
 ## Build
 
 As an OpenWrt feed (optional):
 
 ```sh
-echo 'src-git iptv https://github.com/yveming/openwrt-iptv.git' >> feeds.conf
+echo 'src-git iptv https://github.com/yveming/iptv-nd.git' >> feeds.conf
 ./scripts/feeds update iptv
 ./scripts/feeds install kmod-iptv luci-app-iptv
 ```
