@@ -32,6 +32,26 @@ validate_vid() {
 	[ "$vid" -ge 1 ] && [ "$vid" -le 4094 ]
 }
 
+validate_priority() {
+	local prio="$1"
+
+	case "$prio" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+
+	[ "$prio" -ge 0 ] && [ "$prio" -le 7 ]
+}
+
+validate_mtu() {
+	local mtu="$1"
+
+	case "$mtu" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+
+	[ "$mtu" -ge 576 ] && [ "$mtu" -le 1500 ]
+}
+
 load_config() {
 	config_load iptv
 	config_get_bool ENABLED config enabled 0
@@ -40,6 +60,8 @@ load_config() {
 	config_get SERVICE_VID config service_vid
 	config_get MCAST_VID config mcast_vid
 	config_get IGMP_VID config igmp_vid mcast
+	config_get PRIORITY config priority 3
+	config_get MTU config mtu 1500
 	config_get MACADDR config macaddr
 }
 
@@ -89,6 +111,14 @@ write_igmp_on_service() {
 	}
 }
 
+write_priority() {
+	printf '%s\n' "$PRIORITY" \
+		> "/sys/class/net/$NAME/priority" || {
+		log_fail "cannot write priority=$PRIORITY to $NAME"
+		return 1
+	}
+}
+
 configure_device() {
 	local err
 
@@ -109,6 +139,7 @@ configure_device() {
 	fi
 
 	write_igmp_on_service || return 1
+	write_priority || return 1
 
 	if [ -n "$MACADDR" ]; then
 		if ! err=$(ip link set "$NAME" address "$MACADDR" 2>&1); then
@@ -117,12 +148,17 @@ configure_device() {
 		fi
 	fi
 
+	if ! err=$(ip link set "$NAME" mtu "$MTU" 2>&1); then
+		log_fail "cannot set MTU $MTU on $NAME: $err"
+		return 1
+	fi
+
 	if ! err=$(ip link set "$NAME" up 2>&1); then
 		log_fail "cannot bring up $NAME: $err"
 		return 1
 	fi
 
-	logger -t iptv "$NAME up: uplink=$UPLINK service_vid=$SERVICE_VID mcast_vid=$MCAST_VID igmp_vid=$IGMP_VID${MACADDR:+ macaddr=$MACADDR}"
+	logger -t iptv "$NAME up: uplink=$UPLINK service_vid=$SERVICE_VID priority=$PRIORITY mcast_vid=$MCAST_VID igmp_vid=$IGMP_VID mtu=$MTU${MACADDR:+ macaddr=$MACADDR}"
 }
 
 config_iptv() {
@@ -157,6 +193,14 @@ config_iptv() {
 	}
 	validate_vid "$MCAST_VID" || {
 		log_fail "invalid multicast VLAN '$MCAST_VID' (expected 1-4094)"
+		return 1
+	}
+	validate_priority "$PRIORITY" || {
+		log_fail "invalid 802.1p priority '$PRIORITY' (expected 0-7)"
+		return 1
+	}
+	validate_mtu "$MTU" || {
+		log_fail "invalid MTU '$MTU' (expected 576-1500)"
 		return 1
 	}
 	[ "$SERVICE_VID" != "$MCAST_VID" ] || {

@@ -28,6 +28,12 @@ msgstr "IPTV 设备名称。如需桥接或路由，请到“网络 → 接口�
 msgid "Service VLAN"
 msgstr "业务 VLAN"
 
+msgid "802.1p priority"
+msgstr "802.1p 优先级"
+
+msgid "VLAN priority for all upstream IPTV traffic. Default: 3."
+msgstr "所有 IPTV 上行流量的 VLAN 优先级，默认 3。"
+
 msgid "Operator VLAN carrying IPTV unicast traffic."
 msgstr "承载 IPTV 单播流量的运营商 VLAN。"
 
@@ -48,6 +54,12 @@ msgstr "IGMP/MLD 控制报文上行使用的 VLAN"
 
 msgid "MAC address"
 msgstr "MAC 地址"
+
+msgid "MTU"
+msgstr "MTU"
+
+msgid "IPTV interface MTU. Default: 1500."
+msgstr "IPTV 接口 MTU，默认 1500。"
 
 msgid "Optional. Override the MAC address of the IPTV device."
 msgstr "可选。覆盖 IPTV 设备的 MAC 地址。"

@@ -20,9 +20,11 @@ var DEFAULT_CONFIG =
 	"\toption uplink 'pon0'\n" +
 	"\toption name 'itv'\n" +
 	"\toption service_vid ''\n" +
+	"\toption priority '3'\n" +
 	"\toption mcast_vid ''\n" +
 	"\toption igmp_vid 'mcast'\n" +
-	"\toption macaddr ''\n";
+	"\toption macaddr ''\n" +
+	"\toption mtu '1500'\n";
 
 return view.extend({
 	load: function() {
@@ -93,6 +95,13 @@ return view.extend({
 		o.rmempty = false;
 		o.depends('enabled', '1');
 
+		o = s.option(form.Value, 'priority', _('802.1p priority'),
+			_('VLAN priority for all upstream IPTV traffic. Default: 3.'));
+		o.datatype = 'range(0,7)';
+		o.default = '3';
+		o.rmempty = false;
+		o.depends('enabled', '1');
+
 		o = s.option(form.Value, 'mcast_vid', _('Multicast VLAN'),
 			_('Operator VLAN carrying IPTV multicast traffic.'));
 		o.datatype = 'range(1,4094)';
@@ -120,6 +129,13 @@ return view.extend({
 			_('Optional. Override the MAC address of the IPTV device.'));
 		o.datatype = 'macaddr';
 		o.rmempty = true;
+		o.depends('enabled', '1');
+
+		o = s.option(form.Value, 'mtu', _('MTU'),
+			_('IPTV interface MTU. Default: 1500.'));
+		o.datatype = 'range(576,1500)';
+		o.default = '1500';
+		o.rmempty = false;
 		o.depends('enabled', '1');
 
 		return m.render();

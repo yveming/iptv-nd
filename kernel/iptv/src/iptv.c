@@ -31,6 +31,7 @@
 #include <linux/in6.h>
 #include <linux/ip.h>
 #include <linux/ipv6.h>
+#include <linux/kstrtox.h>
 #include <linux/module.h>
 #include <linux/netdevice.h>
 #include <linux/rtnetlink.h>
@@ -62,6 +63,7 @@ struct iptv_dev {
 	netdevice_tracker dev_tracker;
 	unsigned int service_vid;
 	unsigned int mcast_vid;
+	unsigned int priority;
 	bool igmp_on_service;
 	bool handler_on;
 	bool gro_cells_ready;
@@ -215,7 +217,7 @@ static netdev_tx_t iptv_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct iptv_dev *iptv = netdev_priv(dev);
 	struct net_device *lower = iptv->lower;
 	unsigned int len = skb->len;
-	unsigned int vid;
+	unsigned int vid, tci;
 
 	if (unlikely(!lower || !netif_running(lower) || !netif_carrier_ok(lower) ||
 		     skb->len < ETH_HLEN ||
@@ -238,9 +240,14 @@ static netdev_tx_t iptv_xmit(struct sk_buff *skb, struct net_device *dev)
 		vid = iptv->service_vid;
 
 	dev_sw_netstats_tx_add(dev, 1, len);
+	/* All upstream IPTV traffic uses the same 802.1p priority.  Put it in
+	 * both the VLAN TCI and skb->priority so software and hardware VLAN
+	 * paths agree; this does not depend on the lower device's egress map. */
+	tci = vid | (iptv->priority << VLAN_PRIO_SHIFT);
+	skb->priority = iptv->priority;
 	/* The tag rides in skb metadata; the lower device inserts it on the
 	 * wire (hardware VLAN offload or the core's software fallback). */
-	__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), vid);
+	__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), tci);
 	skb->dev = lower;
 	dev_queue_xmit(skb);
 
@@ -334,9 +341,36 @@ static ssize_t iptv_igmp_on_service_store(struct device *d,
 static DEVICE_ATTR(igmp_on_service, 0644,
 		   iptv_igmp_on_service_show, iptv_igmp_on_service_store);
 
+static ssize_t iptv_priority_show(struct device *d,
+				  struct device_attribute *attr, char *buf)
+{
+	struct iptv_dev *iptv = netdev_priv(to_net_dev(d));
+
+	return sysfs_emit(buf, "%u\n", READ_ONCE(iptv->priority));
+}
+
+static ssize_t iptv_priority_store(struct device *d,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count)
+{
+	struct iptv_dev *iptv = netdev_priv(to_net_dev(d));
+	unsigned int val;
+	int ret;
+
+	ret = kstrtouint(buf, 0, &val);
+	if (ret || val > 7)
+		return -EINVAL;
+
+	WRITE_ONCE(iptv->priority, val);
+	return count;
+}
+static DEVICE_ATTR(priority, 0644,
+		   iptv_priority_show, iptv_priority_store);
+
 static struct attribute *iptv_sysfs_attrs[] = {
 	&dev_attr_vids.attr,
 	&dev_attr_igmp_on_service.attr,
+	&dev_attr_priority.attr,
 	NULL,
 };
 static const struct attribute_group iptv_sysfs_group = {
