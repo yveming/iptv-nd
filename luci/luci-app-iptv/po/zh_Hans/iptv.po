@@ -22,8 +22,8 @@ msgstr "承载运营商 VLAN 的网络设备，通常是 pon0。"
 msgid "Device name"
 msgstr "设备名称"
 
-msgid "Linux name of the IPTV device. Add it to a bridge or interface in Network → Interfaces if needed."
-msgstr "IPTV 设备的 Linux 名称。如需桥接或路由，请到“网络 → 接口”中把该设备加入网桥或接口。"
+msgid "IPTV device name. Add it to a bridge or interface in Network → Interfaces if needed."
+msgstr "IPTV 设备名称。如需桥接或路由，请到“网络 → 接口”中把该设备加入网桥或接口。"
 
 msgid "Service VLAN"
 msgstr "业务 VLAN"

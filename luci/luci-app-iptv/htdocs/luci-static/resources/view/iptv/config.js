@@ -81,7 +81,7 @@ return view.extend({
 		o.depends('enabled', '1');
 
 		o = s.option(form.Value, 'name', _('Device name'),
-			_('Linux name of the IPTV device. Add it to a bridge or interface in Network → Interfaces if needed.'));
+			_('IPTV device name. Add it to a bridge or interface in Network → Interfaces if needed.'));
 		o.default = 'itv';
 		o.rmempty = false;
 		o.validate = validateIfname;
