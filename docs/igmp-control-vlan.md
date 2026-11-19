@@ -14,7 +14,8 @@ no upstream mapping and is dropped by `airoha_pon_select_flow()`
 
 - the STB obtains an address and authentication/VOD works;
 - live TV stays black;
-- `tcpdump -ni pon0 -e -n igmp` only shows the report on the multicast VLAN.
+- `tcpdump -ni pon0 -e -n 'vlan and igmp'` only shows the report on the
+  multicast VLAN.
 
 ## Configuration
 
@@ -51,12 +52,23 @@ All other multicast remains on `mcast_vid`, including IPv6 NDP (types
 ## Diagnostics
 
 ```sh
-# VLAN of the actual IGMP report
-tcpdump -ni pon0 -e -n -vv 'igmp'
+# VLAN of the actual IGMP report (pon0 carries the VLAN tag)
+tcpdump -ni pon0 -e -n -vv 'vlan and igmp'
+
+# Untagged logical interface
+tcpdump -ni itv -e -n -vv 'igmp'
 
 # PON datapath counters
 cat /sys/kernel/debug/airoha-xpon-pon0/datapath
+
+# PON/OMCI status (reference only)
+ponctl --device pon0 status --json
 ```
+
+Both downstream queries and upstream reports carry a VLAN tag on `pon0`.
+The query PCP is set by the OLT (often 0); the report PCP follows the `iptv`
+`priority` option.  The PON path has no hardware VLAN TX, so the tag is
+inserted into the frame data; capture filters must include `vlan`.
 
 `tx_no_mapping` growing while zapping channels usually means the selected
 control VLAN has no upstream flow.  Selecting `service` should stop the
